@@ -554,14 +554,14 @@ class _StatutCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isValidé   = statut == 'validé';
-    final isRefusé   = statut == 'refusé';
-    final color      = isValidé ? AppColors.greenBright : isRefusé ? AppColors.error : AppColors.warning;
-    final icon       = isValidé ? Icons.verified_rounded : isRefusé ? Icons.block_rounded : Icons.hourglass_top_rounded;
-    final titre      = isValidé ? 'Profil validé' : isRefusé ? 'Profil refusé' : 'En attente de validation';
-    final sousTitre  = isValidé
+    final isValide   = statut == 'validé';
+    final isRefuse   = statut == 'refusé';
+    final color      = isValide ? AppColors.greenBright : isRefuse ? AppColors.error : AppColors.warning;
+    final icon       = isValide ? Icons.verified_rounded : isRefuse ? Icons.block_rounded : Icons.hourglass_top_rounded;
+    final titre      = isValide ? 'Profil validé' : isRefuse ? 'Profil refusé' : 'En attente de validation';
+    final sousTitre  = isValide
         ? 'Vous êtes visible par tous les clients'
-        : isRefusé
+        : isRefuse
             ? 'Contactez le support pour plus d\'informations'
             : 'Votre dossier est en cours d\'examen';
     return Container(
