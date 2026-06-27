@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
+import '../services/firebase_service.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -80,6 +81,14 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
   }
 
   Future<void> _navigate() async {
+    final user = FB.auth.currentUser;
+    if (user != null) {
+      final doc  = await FB.db.collection('users').doc(user.uid).get();
+      final role = doc.data()?['role'] ?? 'client';
+      if (!mounted) return;
+      context.go(role == 'pro' ? '/pro-home' : '/client-home');
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
     final seen  = prefs.getBool('onboarding_done') ?? false;
     if (!mounted) return;

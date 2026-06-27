@@ -5,7 +5,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
+import '../services/firebase_service.dart';
 
 class AuthPage extends StatefulWidget {
   final bool isLogin;
@@ -78,16 +81,26 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
   Future<void> _register() async {
     if (!_regKey.currentState!.validate()) return;
     setState(() => _regLoading = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
-    if (!mounted) return;
-    setState(() => _regLoading = false);
-    // TODO: Firebase createUserWithEmailAndPassword
-    _showSuccess('Compte créé avec succès !');
-    // Redirection selon le rôle
-    if (widget.role == 'pro') {
-      context.go('/pro-register');
-    } else {
-      context.go('/client-home');
+    try {
+      final cred = await FB.auth.createUserWithEmailAndPassword(
+        email: _regEmail.text.trim(),
+        password: _regPass.text,
+      );
+      await FB.db.collection('users').doc(cred.user!.uid).set({
+        'nom':       _regName.text.trim(),
+        'email':     _regEmail.text.trim(),
+        'telephone': '+237${_regPhone.text.trim()}',
+        'role':      widget.role,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
+      _showSuccess('Compte créé avec succès !');
+      context.go(widget.role == 'pro' ? '/pro-register' : '/client-home');
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      _showError(_authError(e.code));
+    } finally {
+      if (mounted) setState(() => _regLoading = false);
     }
   }
 
@@ -95,14 +108,34 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
   Future<void> _login() async {
     if (!_loginKey.currentState!.validate()) return;
     setState(() => _loginLoading = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
-    if (!mounted) return;
-    setState(() => _loginLoading = false);
-    // TODO: Firebase signInWithEmailAndPassword + redirection selon rôle
-    if (widget.role == 'pro') {
-      context.go('/pro-register');
-    } else {
-      context.go('/client-home');
+    try {
+      final cred = await FB.auth.signInWithEmailAndPassword(
+        email: _loginEmail.text.trim(),
+        password: _loginPass.text,
+      );
+      final doc  = await FB.db.collection('users').doc(cred.user!.uid).get();
+      final role = doc.data()?['role'] ?? 'client';
+      if (!mounted) return;
+      context.go(role == 'pro' ? '/pro-home' : '/client-home');
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      _showError(_authError(e.code));
+    } finally {
+      if (mounted) setState(() => _loginLoading = false);
+    }
+  }
+
+  String _authError(String code) {
+    switch (code) {
+      case 'email-already-in-use':  return 'Cet email est déjà utilisé';
+      case 'user-not-found':        return 'Aucun compte avec cet email';
+      case 'wrong-password':
+      case 'invalid-credential':    return 'Email ou mot de passe incorrect';
+      case 'invalid-email':         return 'Email invalide';
+      case 'weak-password':         return 'Mot de passe trop faible (min. 6 caractères)';
+      case 'too-many-requests':     return 'Trop de tentatives, réessayez plus tard';
+      case 'network-request-failed':return 'Erreur réseau, vérifiez votre connexion';
+      default:                      return 'Une erreur est survenue, réessayez';
     }
   }
 
@@ -112,6 +145,19 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
         const Icon(Icons.check_circle_rounded, color: AppColors.greenBright, size: 18),
         const SizedBox(width: 10),
         Text(msg, style: AppTextStyles.body(size: 13, color: Colors.white)),
+      ]),
+      backgroundColor: AppColors.bgCard,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+    ));
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Row(children: [
+        const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
+        const SizedBox(width: 10),
+        Expanded(child: Text(msg, style: AppTextStyles.body(size: 13, color: Colors.white))),
       ]),
       backgroundColor: AppColors.bgCard,
       behavior: SnackBarBehavior.floating,
@@ -402,12 +448,21 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
           ),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context),
-            child: Text('Annuler', style: AppTextStyles.body(size: 13, color: AppColors.textSub))),
           TextButton(
-            onPressed: () {
+            onPressed: () => Navigator.pop(context),
+            child: Text('Annuler', style: AppTextStyles.body(size: 13, color: AppColors.textSub)),
+          ),
+          TextButton(
+            onPressed: () async {
+              final email = ctrl.text.trim();
               Navigator.pop(context);
-              _showSuccess('Email de réinitialisation envoyé !');
+              if (email.isEmpty) return;
+              try {
+                await FB.auth.sendPasswordResetEmail(email: email);
+                if (mounted) _showSuccess('Email de réinitialisation envoyé !');
+              } on FirebaseAuthException {
+                if (mounted) _showError('Email introuvable ou invalide');
+              }
             },
             child: Text('Envoyer', style: AppTextStyles.body(size: 13, color: AppColors.blueLight)),
           ),
