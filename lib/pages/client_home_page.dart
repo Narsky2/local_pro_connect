@@ -12,6 +12,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../theme/app_theme.dart';
 import '../models.dart';
+import '../services/firebase_service.dart';
 import 'pro_fiche_page.dart';
 
 // ── Catégories ───────────────────────────────────────────────────
@@ -58,7 +59,9 @@ class _ClientHomePageState extends State<ClientHomePage>
   bool   _filterOpen  = false;
 
   // ── Résultats ──
-  List<Pro> _results = List.from(mockPros);
+  List<Pro> _allPros = [];
+  List<Pro> _results = [];
+  bool _loadingPros = true;
   Pro? _selectedPro;
 
   // ── Panel detail ──
@@ -73,6 +76,7 @@ class _ClientHomePageState extends State<ClientHomePage>
         vsync: this, duration: const Duration(milliseconds: 320));
     _panelSlide = CurvedAnimation(
         parent: _panelCtrl, curve: Curves.easeOutCubic);
+    _loadPros();
     _getLocation();
   }
 
@@ -82,6 +86,27 @@ class _ClientHomePageState extends State<ClientHomePage>
     _searchCtrl.dispose();
     _panelCtrl.dispose();
     super.dispose();
+  }
+
+  // ── Chargement Firestore ──────────────────────────────────────
+  Future<void> _loadPros() async {
+    try {
+      final snap = await FB.db
+          .collection('pros')
+          .where('statut', isEqualTo: 'validé')
+          .get();
+      final pros = snap.docs
+          .map((d) => Pro.fromMap(d.id, d.data()))
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _allPros = pros;
+        _loadingPros = false;
+      });
+      _search();
+    } catch (_) {
+      if (mounted) setState(() => _loadingPros = false);
+    }
   }
 
   // ── GPS ──────────────────────────────────────────────────────
@@ -111,7 +136,7 @@ class _ClientHomePageState extends State<ClientHomePage>
   // ── Recherche + filtres ───────────────────────────────────────
   void _search() {
     final q = _searchCtrl.text.toLowerCase().trim();
-    var res = mockPros.where((p) {
+    var res = _allPros.where((p) {
       final matchQ    = q.isEmpty ||
           p.nom.toLowerCase().contains(q) ||
           p.categorie.toLowerCase().contains(q) ||
@@ -723,7 +748,7 @@ class _ClientHomePageState extends State<ClientHomePage>
                 Text('Mon compte',
                     style: AppTextStyles.heading(
                         size: 20, color: Colors.white)),
-                Text('client@email.com',
+                Text(FB.auth.currentUser?.email ?? '',
                     style: AppTextStyles.body(
                         size: 13, color: AppColors.textSub)),
                 const SizedBox(height: 16),
@@ -784,7 +809,10 @@ class _ClientHomePageState extends State<ClientHomePage>
                 const SizedBox(height: 16),
                 // Déconnexion
                 GestureDetector(
-                  onTap: () => context.go('/welcome'),
+                  onTap: () async {
+                    await FB.auth.signOut();
+                    if (context.mounted) context.go('/welcome');
+                  },
                   child: Container(
                     width: double.infinity,
                     height: 52,

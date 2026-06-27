@@ -19,6 +19,8 @@ import 'pages/pro_home_page.dart';
 import 'pages/client_home_page.dart';
 import 'pages/pro_fiche_page.dart';
 import 'models.dart';
+import 'services/firebase_service.dart';
+import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -96,17 +98,48 @@ final _router = GoRouter(
     // ── 7. Fiche détaillée d'un prestataire (vue client) ──
     GoRoute(
       path: '/pro/:id',
-      builder: (_, state) {
-        final id = state.pathParameters['id']!;
-        final pro = mockPros.firstWhere(
-          (p) => p.id == id,
-          orElse: () => mockPros.first,
-        );
-        return ProFichePage(pro: pro);
-      },
+      builder: (_, state) =>
+          _ProFicheLoader(id: state.pathParameters['id']!),
     ),
   ],
 );
+
+// ════════════════════════════════════════════════════════════════
+// Loader pour deep-link /pro/:id
+// ════════════════════════════════════════════════════════════════
+class _ProFicheLoader extends StatefulWidget {
+  final String id;
+  const _ProFicheLoader({required this.id});
+  @override
+  State<_ProFicheLoader> createState() => _ProFicheLoaderState();
+}
+
+class _ProFicheLoaderState extends State<_ProFicheLoader> {
+  Pro? _pro;
+
+  @override
+  void initState() {
+    super.initState();
+    FB.db.collection('pros').doc(widget.id).get().then((doc) {
+      if (doc.exists && mounted) {
+        setState(() => _pro = Pro.fromMap(doc.id, doc.data()!));
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_pro == null) {
+      return const Scaffold(
+        backgroundColor: AppColors.bgDark,
+        body: Center(
+          child: CircularProgressIndicator(color: AppColors.teal),
+        ),
+      );
+    }
+    return ProFichePage(pro: _pro!);
+  }
+}
 
 // ════════════════════════════════════════════════════════════════
 class LocalProConnect extends StatelessWidget {
