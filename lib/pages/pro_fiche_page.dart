@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../models.dart';
 import '../services/firebase_service.dart';
 import '../widgets/payment_bottom_sheet.dart';
+import '../widgets/avis_form.dart';
 
 class ProFichePage extends StatefulWidget {
   final Pro pro;
@@ -904,31 +905,68 @@ class _TabHoraires extends StatelessWidget {
 class _TabAvis extends StatelessWidget {
   final Pro pro;
   const _TabAvis({required this.pro});
+
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    padding: const EdgeInsets.all(20),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FB.db
+          .collection('avis')
+          .where('proId', isEqualTo: pro.id)
+          .snapshots(),
+      builder: (_, snap) {
+        final docs = snap.data?.docs ?? [];
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            _NoteGlobale(pro: pro),
+            const SizedBox(height: 20),
 
-      // Note globale
-      _NoteGlobale(pro: pro),
-      const SizedBox(height: 20),
+            Text('Commentaires clients',
+                style:
+                    AppTextStyles.heading(size: 15, color: Colors.white)),
+            const SizedBox(height: 12),
 
-      Text('Commentaires clients',
-          style: AppTextStyles.heading(size: 15, color: Colors.white)),
-      const SizedBox(height: 12),
+            if (snap.connectionState == ConnectionState.waiting &&
+                docs.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator(
+                      color: AppColors.teal, strokeWidth: 2),
+                ),
+              )
+            else if (docs.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text('Aucun avis pour le moment.',
+                      style: AppTextStyles.body(
+                          size: 13, color: AppColors.textSub)),
+                ),
+              )
+            else
+              ...docs.map((d) => _FirestoreAvisCard(
+                  data: d.data() as Map<String, dynamic>)),
 
-      ...pro.reviews.map((r) => _AvisCard(avis: r)),
-
-      const SizedBox(height: 16),
-      // Bouton laisser un avis
-      OutlineButton(
-        label: '✏️  Laisser un avis',
-        onTap: () {},
-        color: AppColors.blueLight,
-        height: 48,
-      ),
-    ]),
-  );
+            const SizedBox(height: 16),
+            OutlineButton(
+              label: '✏️  Laisser un avis',
+              onTap: () => AvisForm.show(
+                context,
+                proId:    pro.id,
+                proNom:   pro.nom,
+                proEmoji: pro.emoji,
+              ),
+              color: AppColors.blueLight,
+              height: 48,
+            ),
+          ]),
+        );
+      },
+    );
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1305,6 +1343,81 @@ class _AvisCard extends StatelessWidget {
           style: AppTextStyles.body(size: 12, color: AppColors.textSub)),
     ]),
   );
+}
+
+// ── Carte avis Firestore ──────────────────────────────────────────
+class _FirestoreAvisCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  const _FirestoreAvisCard({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final nom  = (data['clientNom'] as String?)?.isNotEmpty == true
+        ? data['clientNom'] as String
+        : 'Client';
+    final note = (data['note'] as num?)?.toDouble() ?? 0.0;
+    final txt  = (data['commentaire'] as String?) ?? '';
+    final ts   = data['createdAt'];
+    String dateStr = '';
+    if (ts is Timestamp) {
+      final d = ts.toDate();
+      dateStr = '${d.day}/${d.month}/${d.year}';
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: Colors.white.withOpacity(0.07)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+        Row(children: [
+          Container(
+            width: 34, height: 34,
+            decoration: BoxDecoration(
+              color: AppColors.blueLight.withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(nom[0].toUpperCase(),
+                  style: AppTextStyles.heading(
+                      size: 15, color: AppColors.blueLight)),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(nom,
+                    style: AppTextStyles.label(
+                        size: 13, color: Colors.white,
+                        weight: FontWeight.w600)),
+                if (dateStr.isNotEmpty)
+                  Text(dateStr,
+                      style: AppTextStyles.label(
+                          size: 10, color: AppColors.textHint)),
+              ],
+            ),
+          ),
+          Row(children: List.generate(5, (i) => Icon(
+            i < note.floor()
+                ? Icons.star_rounded
+                : Icons.star_outline_rounded,
+            color: AppColors.warning, size: 13,
+          ))),
+        ]),
+        if (txt.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(txt,
+              style: AppTextStyles.body(
+                  size: 12, color: AppColors.textSub)),
+        ],
+      ]),
+    );
+  }
 }
 
 class _RoundBtn extends StatelessWidget {
