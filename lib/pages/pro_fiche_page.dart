@@ -10,6 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../models.dart';
 import '../services/firebase_service.dart';
+import '../widgets/payment_bottom_sheet.dart';
 
 class ProFichePage extends StatefulWidget {
   final Pro pro;
@@ -590,12 +591,15 @@ class _ProFichePageState extends State<ProFichePage>
                         8;
                     final dateTime = DateTime(
                         date!.year, date!.month, date!.day, h);
-                    await FB.db.collection('reservations').add({
+                    final service = serviceChoisi ?? 'Service général';
+                    final docRef = await FB.db
+                        .collection('reservations')
+                        .add({
                       'clientId':  uid,
                       'proId':     pro.id,
                       'proNom':    pro.nom,
                       'proEmoji':  pro.emoji,
-                      'service':   serviceChoisi ?? 'Service général',
+                      'service':   service,
                       'montant':   montant,
                       'date':      Timestamp.fromDate(dateTime),
                       'creneau':   creneau,
@@ -605,9 +609,17 @@ class _ProFichePageState extends State<ProFichePage>
                     });
                     if (!ctx2.mounted) return;
                     Navigator.pop(ctx2);
-                    _action(
-                        '✅ Réservation envoyée à ${pro.nom} — '
-                        '${date!.day}/${date!.month} à $creneau');
+                    if (!mounted) return;
+                    await PaymentBottomSheet.show(
+                      context,
+                      reservationId: docRef.id,
+                      proId:         pro.id,
+                      clientId:      uid,
+                      montant:       montant,
+                      proNom:        pro.nom,
+                      proEmoji:      pro.emoji,
+                      service:       service,
+                    );
                   } catch (e) {
                     setSt(() => submitting = false);
                     ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
