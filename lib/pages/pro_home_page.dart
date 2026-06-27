@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/app_theme.dart';
 import '../models.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/firebase_service.dart';
 
 class ProHomePage extends StatefulWidget {
@@ -75,7 +76,7 @@ class _ProHomePageState extends State<ProHomePage> {
                 setState(() => _isAvailable = v);
                 await FB.db.collection('pros').doc(_pro!.id).update({'isAvailable': v});
               }),
-          _ReservationsTab(),
+          _ReservationsTab(proId: _pro!.id),
           _AvisTab(pro: _pro!),
           _ProfilTab(pro: _pro!, statut: _statut),
         ],
@@ -243,24 +244,65 @@ class _DashboardTab extends StatelessWidget {
 
             // ── Réservations récentes ──
             Row(children: [
-              Text('Demandes récentes', style: AppTextStyles.heading(size: 15, color: Colors.white)),
+              Text('Demandes récentes',
+                  style: AppTextStyles.heading(
+                      size: 15, color: Colors.white)),
               const Spacer(),
-              Text('Voir tout', style: AppTextStyles.label(size: 12, color: AppColors.blueLight)),
+              Text('Voir tout',
+                  style: AppTextStyles.label(
+                      size: 12, color: AppColors.blueLight)),
             ]),
             const SizedBox(height: 12),
-            _ReservationMini(
-              client: 'Alice Mballa', service: 'Dépannage urgent',
-              date: 'Aujourd\'hui, 14h00', statut: 'pending',
-            ),
-            const SizedBox(height: 10),
-            _ReservationMini(
-              client: 'Paul Tchoumi', service: 'Installation tableau',
-              date: 'Demain, 9h00', statut: 'confirmed',
-            ),
-            const SizedBox(height: 10),
-            _ReservationMini(
-              client: 'Sara Kamga', service: 'Mise aux normes',
-              date: '22 juin, 10h00', statut: 'completed',
+            StreamBuilder<QuerySnapshot>(
+              stream: FB.db
+                  .collection('reservations')
+                  .where('proId', isEqualTo: pro.id)
+                  .snapshots(),
+              builder: (_, snap) {
+                final all = List<QueryDocumentSnapshot>.from(
+                    snap.data?.docs ?? []);
+                all.sort((a, b) {
+                  final ta = (a.data() as Map)['createdAt'];
+                  final tb = (b.data() as Map)['createdAt'];
+                  if (ta is Timestamp && tb is Timestamp)
+                    return tb.compareTo(ta);
+                  return 0;
+                });
+                final recent = all.take(3).toList();
+                if (recent.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text('Aucune demande reçue.',
+                        style: AppTextStyles.body(
+                            size: 13, color: AppColors.textSub)),
+                  );
+                }
+                return Column(
+                  children: recent.asMap().entries.map((e) {
+                    final d = e.value.data() as Map<String, dynamic>;
+                    final statut = d['statut'] as String? ?? 'en_attente';
+                    final color = _resaColor(statut);
+                    final label = _resaLabel(statut);
+                    final client = d['clientNom'] as String? ?? 'Client';
+                    final service = d['service'] as String? ?? '';
+                    final ts = d['date'];
+                    String dateStr = service;
+                    if (ts is Timestamp) {
+                      final dt = ts.toDate();
+                      final creneau = d['creneau'] as String? ?? '';
+                      dateStr = '${dt.day}/${dt.month} à $creneau';
+                    }
+                    return Padding(
+                      padding: EdgeInsets.only(
+                          bottom: e.key < recent.length - 1 ? 10 : 0),
+                      child: _ReservationMiniData(
+                        client: client, service: service,
+                        date: dateStr, color: color, label: label,
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
             ),
             const SizedBox(height: 24),
 
@@ -294,6 +336,8 @@ class _DashboardTab extends StatelessWidget {
 // ONGLET 2 — RÉSERVATIONS
 // ════════════════════════════════════════════════════════════════
 class _ReservationsTab extends StatefulWidget {
+  final String proId;
+  const _ReservationsTab({required this.proId});
   @override
   State<_ReservationsTab> createState() => _ReservationsTabState();
 }
@@ -301,6 +345,15 @@ class _ReservationsTab extends StatefulWidget {
 class _ReservationsTabState extends State<_ReservationsTab> {
   String _filter = 'Toutes';
   final _filters = ['Toutes', 'En attente', 'Confirmées', 'Terminées'];
+
+  String? get _filterStatut {
+    switch (_filter) {
+      case 'En attente': return 'en_attente';
+      case 'Confirmées': return 'confirmée';
+      case 'Terminées':  return 'terminée';
+      default:           return null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -311,7 +364,8 @@ class _ReservationsTabState extends State<_ReservationsTab> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
             child: Row(children: [
-              Text('Mes réservations', style: AppTextStyles.heading(size: 18, color: Colors.white)),
+              Text('Mes réservations',
+                  style: AppTextStyles.heading(size: 18, color: Colors.white)),
             ]),
           ),
           const SizedBox(height: 14),
@@ -331,14 +385,22 @@ class _ReservationsTabState extends State<_ReservationsTab> {
                   onTap: () => setState(() => _filter = f),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 7),
                     decoration: BoxDecoration(
-                      color: sel ? AppColors.teal.withOpacity(0.15) : AppColors.bgCard,
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                      border: Border.all(color: sel ? AppColors.teal.withOpacity(0.6) : Colors.white.withOpacity(0.1)),
+                      color: sel
+                          ? AppColors.teal.withOpacity(0.15)
+                          : AppColors.bgCard,
+                      borderRadius:
+                          BorderRadius.circular(AppRadius.pill),
+                      border: Border.all(
+                          color: sel
+                              ? AppColors.teal.withOpacity(0.6)
+                              : Colors.white.withOpacity(0.1)),
                     ),
                     child: Text(f, style: AppTextStyles.label(
-                      size: 12, color: sel ? AppColors.teal : AppColors.textSub,
+                      size: 12,
+                      color: sel ? AppColors.teal : AppColors.textSub,
                       weight: sel ? FontWeight.w700 : FontWeight.w500,
                     )),
                   ),
@@ -349,33 +411,49 @@ class _ReservationsTabState extends State<_ReservationsTab> {
           const SizedBox(height: 16),
 
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-              children: [
-                _ReservationCard(
-                  client: 'Alice Mballa', service: 'Dépannage urgent',
-                  date: 'Aujourd\'hui, 14h00', statut: 'pending',
-                  prix: '15 000 FCFA',
-                ),
-                const SizedBox(height: 12),
-                _ReservationCard(
-                  client: 'Paul Tchoumi', service: 'Installation tableau électrique',
-                  date: 'Demain, 9h00', statut: 'confirmed',
-                  prix: '45 000 FCFA',
-                ),
-                const SizedBox(height: 12),
-                _ReservationCard(
-                  client: 'Sara Kamga', service: 'Mise aux normes',
-                  date: '22 juin, 10h00', statut: 'completed',
-                  prix: '60 000 FCFA',
-                ),
-                const SizedBox(height: 12),
-                _ReservationCard(
-                  client: 'Hervé Mbida', service: 'Dépannage prise électrique',
-                  date: '20 juin, 16h30', statut: 'completed',
-                  prix: '12 000 FCFA',
-                ),
-              ],
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FB.db
+                  .collection('reservations')
+                  .where('proId', isEqualTo: widget.proId)
+                  .snapshots(),
+              builder: (_, snap) {
+                var all = List<QueryDocumentSnapshot>.from(
+                    snap.data?.docs ?? []);
+                all.sort((a, b) {
+                  final ta = (a.data() as Map)['createdAt'];
+                  final tb = (b.data() as Map)['createdAt'];
+                  if (ta is Timestamp && tb is Timestamp) return tb.compareTo(ta);
+                  return 0;
+                });
+                final docs = _filterStatut == null
+                    ? all
+                    : all.where((d) =>
+                        (d.data() as Map)['statut'] == _filterStatut).toList();
+
+                if (snap.connectionState == ConnectionState.waiting &&
+                    docs.isEmpty) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                        color: AppColors.teal, strokeWidth: 2),
+                  );
+                }
+                if (docs.isEmpty) {
+                  return Center(
+                    child: Text('Aucune réservation.',
+                        style: AppTextStyles.body(
+                            size: 14, color: AppColors.textSub)),
+                  );
+                }
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (_, i) => _FirestoreResaCardPro(
+                    id:   docs[i].id,
+                    data: docs[i].data() as Map<String, dynamic>,
+                  ),
+                );
+              },
             ),
           ),
         ]),
@@ -396,70 +474,165 @@ class _AvisTab extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(gradient: AppColors.bgGradient),
       child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Avis clients', style: AppTextStyles.heading(size: 18, color: Colors.white)),
-            const SizedBox(height: 16),
-
-            // Note globale
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: AppColors.warning.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: AppColors.warning.withOpacity(0.25)),
-              ),
-              child: Row(children: [
-                Column(children: [
-                  Text('${pro.note}', style: AppTextStyles.display(size: 36, color: AppColors.warning)),
-                  Row(children: List.generate(5, (i) => Icon(
-                    i < pro.note.floor() ? Icons.star_rounded : Icons.star_outline_rounded,
-                    color: AppColors.warning, size: 14,
-                  ))),
-                ]),
-                const SizedBox(width: 20),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${pro.avis} avis au total', style: AppTextStyles.body(size: 13, color: Colors.white)),
-                  const SizedBox(height: 4),
-                  Text('Basé sur ${pro.prestations} prestations réalisées',
-                      style: AppTextStyles.label(size: 11, color: AppColors.textHint)),
-                ])),
-              ]),
-            ),
-            const SizedBox(height: 20),
-
-            ...pro.reviews.map((r) => Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.04),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: Colors.white.withOpacity(0.07)),
-              ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Container(
-                    width: 34, height: 34,
-                    decoration: BoxDecoration(color: AppColors.blueLight.withOpacity(0.15), shape: BoxShape.circle),
-                    child: Center(child: Text(r.client[0],
-                        style: AppTextStyles.heading(size: 15, color: AppColors.blueLight))),
+        child: StreamBuilder<QuerySnapshot>(
+          stream: FB.db
+              .collection('avis')
+              .where('proId', isEqualTo: pro.id)
+              .snapshots(),
+          builder: (_, snap) {
+            final docs = snap.data?.docs ?? [];
+            final count = docs.length;
+            double note = pro.note;
+            if (count > 0) {
+              note = docs
+                      .map((d) =>
+                          (d.data() as Map)['note'] as num? ?? 0)
+                      .reduce((a, b) => a + b)
+                      .toDouble() /
+                  count;
+            }
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text('Avis clients',
+                    style: AppTextStyles.heading(
+                        size: 18, color: Colors.white)),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    border: Border.all(
+                        color: AppColors.warning.withOpacity(0.25)),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(r.client, style: AppTextStyles.label(size: 13, color: Colors.white, weight: FontWeight.w600)),
-                    Text(r.date, style: AppTextStyles.label(size: 10, color: AppColors.textHint)),
-                  ])),
-                  Row(children: List.generate(5, (i) => Icon(
-                    i < r.note.floor() ? Icons.star_rounded : Icons.star_outline_rounded,
-                    color: AppColors.warning, size: 13,
-                  ))),
-                ]),
-                const SizedBox(height: 10),
-                Text(r.commentaire, style: AppTextStyles.body(size: 12, color: AppColors.textSub)),
+                  child: Row(children: [
+                    Column(children: [
+                      Text(note.toStringAsFixed(1),
+                          style: AppTextStyles.display(
+                              size: 36, color: AppColors.warning)),
+                      Row(children: List.generate(5, (i) => Icon(
+                        i < note.floor()
+                            ? Icons.star_rounded
+                            : Icons.star_outline_rounded,
+                        color: AppColors.warning, size: 14,
+                      ))),
+                    ]),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text('$count avis au total',
+                            style: AppTextStyles.body(
+                                size: 13, color: Colors.white)),
+                        const SizedBox(height: 4),
+                        Text(
+                            'Basé sur ${pro.prestations} prestations réalisées',
+                            style: AppTextStyles.label(
+                                size: 11,
+                                color: AppColors.textHint)),
+                      ]),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 20),
+                if (snap.connectionState == ConnectionState.waiting &&
+                    docs.isEmpty)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(
+                          color: AppColors.teal, strokeWidth: 2),
+                    ),
+                  )
+                else if (docs.isEmpty)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text('Aucun avis pour le moment.',
+                          style: AppTextStyles.body(
+                              size: 13, color: AppColors.textSub)),
+                    ),
+                  )
+                else
+                  ...docs.map((doc) {
+                    final d = doc.data() as Map<String, dynamic>;
+                    final nom  = d['clientNom'] as String? ?? 'Client';
+                    final n    = (d['note'] as num?)?.toDouble() ?? 0;
+                    final txt  = d['commentaire'] as String? ?? '';
+                    final ts   = d['createdAt'];
+                    String dateStr = '';
+                    if (ts is Timestamp) {
+                      final dt = ts.toDate();
+                      dateStr = '${dt.day}/${dt.month}/${dt.year}';
+                    }
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(
+                            color: Colors.white.withOpacity(0.07)),
+                      ),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Row(children: [
+                          Container(
+                            width: 34, height: 34,
+                            decoration: BoxDecoration(
+                              color:
+                                  AppColors.blueLight.withOpacity(0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Center(
+                              child: Text(nom[0].toUpperCase(),
+                                  style: AppTextStyles.heading(
+                                      size: 15,
+                                      color: AppColors.blueLight)),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                              Text(nom,
+                                  style: AppTextStyles.label(
+                                      size: 13,
+                                      color: Colors.white,
+                                      weight: FontWeight.w600)),
+                              if (dateStr.isNotEmpty)
+                                Text(dateStr,
+                                    style: AppTextStyles.label(
+                                        size: 10,
+                                        color: AppColors.textHint)),
+                            ]),
+                          ),
+                          Row(children: List.generate(5, (i) => Icon(
+                            i < n.floor()
+                                ? Icons.star_rounded
+                                : Icons.star_outline_rounded,
+                            color: AppColors.warning, size: 13,
+                          ))),
+                        ]),
+                        if (txt.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Text(txt,
+                              style: AppTextStyles.body(
+                                  size: 12, color: AppColors.textSub)),
+                        ],
+                      ]),
+                    );
+                  }),
               ]),
-            )),
-          ]),
+            );
+          },
         ),
       ),
     );
@@ -751,6 +924,215 @@ class _ReservationCard extends StatelessWidget {
               ),
             )),
           ]),
+        ],
+      ]),
+    );
+  }
+}
+
+// ── Helpers statut ────────────────────────────────────────────────
+Color _resaColor(String s) {
+  switch (s) {
+    case 'confirmée': return AppColors.blueLight;
+    case 'terminée':  return AppColors.greenBright;
+    case 'annulée':   return AppColors.error;
+    default:          return AppColors.warning;
+  }
+}
+
+String _resaLabel(String s) {
+  switch (s) {
+    case 'confirmée': return 'Confirmée';
+    case 'terminée':  return 'Terminée';
+    case 'annulée':   return 'Annulée';
+    default:          return 'En attente';
+  }
+}
+
+// ── Mini resa dashboard (données réelles) ─────────────────────────
+class _ReservationMiniData extends StatelessWidget {
+  final String client, service, date, label;
+  final Color  color;
+  const _ReservationMiniData({
+    required this.client, required this.service,
+    required this.date,   required this.color,
+    required this.label,
+  });
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.04),
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      border: Border.all(color: Colors.white.withOpacity(0.07)),
+    ),
+    child: Row(children: [
+      Container(width: 8, height: 8,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: color)),
+      const SizedBox(width: 12),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+        Text(client, style: AppTextStyles.label(
+            size: 13, color: Colors.white, weight: FontWeight.w600)),
+        Text('$service • $date', style: AppTextStyles.label(
+            size: 11, color: AppColors.textHint)),
+      ])),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(label, style: AppTextStyles.label(
+            size: 10, color: color, weight: FontWeight.w700)),
+      ),
+    ]),
+  );
+}
+
+// ── Carte réservation complète (pro) avec actions ─────────────────
+class _FirestoreResaCardPro extends StatefulWidget {
+  final String id;
+  final Map<String, dynamic> data;
+  const _FirestoreResaCardPro({required this.id, required this.data});
+  @override
+  State<_FirestoreResaCardPro> createState() => _FirestoreResaCardProState();
+}
+
+class _FirestoreResaCardProState extends State<_FirestoreResaCardPro> {
+  bool _updating = false;
+
+  Future<void> _setStatut(String statut) async {
+    if (_updating) return;
+    setState(() => _updating = true);
+    await FB.db
+        .collection('reservations')
+        .doc(widget.id)
+        .update({'statut': statut});
+    if (mounted) setState(() => _updating = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d       = widget.data;
+    final statut  = d['statut']   as String? ?? 'en_attente';
+    final color   = _resaColor(statut);
+    final label   = _resaLabel(statut);
+    final client  = d['clientNom'] as String? ?? 'Client';
+    final service = d['service']   as String? ?? '';
+    final montant = (d['montant']  as num?)?.toDouble() ?? 0;
+    final ts      = d['date'];
+    final creneau = d['creneau']   as String? ?? '';
+    String dateStr = '';
+    if (ts is Timestamp) {
+      final dt = ts.toDate();
+      dateStr = '${dt.day}/${dt.month}/${dt.year} à $creneau';
+    }
+    final prixStr = montant >= 1000
+        ? '${(montant / 1000).toStringAsFixed(0)}k FCFA'
+        : '${montant.toStringAsFixed(0)} FCFA';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+        Row(children: [
+          Expanded(child: Text(client,
+              style: AppTextStyles.label(
+                  size: 14, color: Colors.white,
+                  weight: FontWeight.w700))),
+          if (_updating)
+            const SizedBox(
+              width: 16, height: 16,
+              child: CircularProgressIndicator(
+                  color: AppColors.teal, strokeWidth: 2),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20)),
+              child: Text(label, style: AppTextStyles.label(
+                  size: 11, color: color, weight: FontWeight.w700)),
+            ),
+        ]),
+        const SizedBox(height: 6),
+        Text(service, style: AppTextStyles.body(
+            size: 12, color: AppColors.textSub)),
+        const SizedBox(height: 10),
+        Row(children: [
+          const Icon(Icons.access_time_rounded,
+              color: AppColors.teal, size: 13),
+          const SizedBox(width: 5),
+          Text(dateStr, style: AppTextStyles.label(
+              size: 11, color: AppColors.teal)),
+          const Spacer(),
+          Text(prixStr, style: AppTextStyles.label(
+              size: 12, color: AppColors.greenBright,
+              weight: FontWeight.w700)),
+        ]),
+        if (statut == 'en_attente') ...[
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(child: GestureDetector(
+              onTap: () => _setStatut('confirmée'),
+              child: Container(
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.greenBright.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(
+                      color: AppColors.greenBright.withOpacity(0.4)),
+                ),
+                child: Center(child: Text('Accepter',
+                    style: AppTextStyles.label(
+                        size: 12, color: AppColors.greenBright,
+                        weight: FontWeight.w700))),
+              ),
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: GestureDetector(
+              onTap: () => _setStatut('annulée'),
+              child: Container(
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.error.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(
+                      color: AppColors.error.withOpacity(0.4)),
+                ),
+                child: Center(child: Text('Refuser',
+                    style: AppTextStyles.label(
+                        size: 12, color: AppColors.error,
+                        weight: FontWeight.w700))),
+              ),
+            )),
+          ]),
+        ] else if (statut == 'confirmée') ...[
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () => _setStatut('terminée'),
+            child: Container(
+              height: 38,
+              decoration: BoxDecoration(
+                color: AppColors.greenBright.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(
+                    color: AppColors.greenBright.withOpacity(0.3)),
+              ),
+              child: Center(child: Text('Marquer comme terminée',
+                  style: AppTextStyles.label(
+                      size: 12, color: AppColors.greenBright,
+                      weight: FontWeight.w600))),
+            ),
+          ),
         ],
       ]),
     );

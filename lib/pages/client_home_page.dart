@@ -12,7 +12,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../theme/app_theme.dart';
 import '../models.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/firebase_service.dart';
+import '../widgets/avis_form.dart';
 import 'pro_fiche_page.dart';
 
 // ── Catégories ───────────────────────────────────────────────────
@@ -621,70 +623,115 @@ class _ClientHomePageState extends State<ClientHomePage>
   // Ce que le client a réservé, statuts, historique
   // ════════════════════════════════════════════════════════════════
   Widget _buildHistoriqueTab() {
-    // Mock réservations
-    final reservations = [
-      _MockResa('Jean-Paul Électricité', '⚡', 'Dépannage urgent',
-          '15 juin 2025', '10h00', 'En attente',   AppColors.warning),
-      _MockResa('Marie Coiffure Pro',   '💇', 'Tresses simples',
-          '10 juin 2025', '14h00', 'Confirmée',    AppColors.blueLight),
-      _MockResa('Tech Repair Center',   '💻', 'Réparation écran',
-          '3 juin 2025',  '9h00',  'Terminée',     AppColors.greenBright),
-      _MockResa('Express Livraison',    '🚚', 'Livraison colis',
-          '28 mai 2025',  '11h00', 'Annulée',      AppColors.error),
-    ];
-
+    final uid = FB.auth.currentUser?.uid ?? '';
     return Container(
       color: AppColors.bgDark,
       child: SafeArea(
         bottom: false,
-        child: Column(children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-            child: Row(children: [
-              Container(
-                width: 34, height: 34,
-                decoration: const BoxDecoration(
-                    shape: BoxShape.circle, color: Colors.white),
-                padding: const EdgeInsets.all(3),
-                child: Image.asset('assets/logo/logo.png',
-                    fit: BoxFit.contain),
+        child: StreamBuilder<QuerySnapshot>(
+          stream: FB.db
+              .collection('reservations')
+              .where('clientId', isEqualTo: uid)
+              .snapshots(),
+          builder: (_, snap) {
+            final all = List<QueryDocumentSnapshot>.from(
+                snap.data?.docs ?? []);
+            all.sort((a, b) {
+              final ta = (a.data() as Map)['createdAt'];
+              final tb = (b.data() as Map)['createdAt'];
+              if (ta is Timestamp && tb is Timestamp) return tb.compareTo(ta);
+              return 0;
+            });
+
+            int enAttente = 0, confirmees = 0, terminees = 0;
+            for (final d in all) {
+              final s = (d.data() as Map)['statut'] as String? ?? '';
+              if (s == 'en_attente') enAttente++;
+              else if (s == 'confirmée') confirmees++;
+              else if (s == 'terminée') terminees++;
+            }
+
+            return Column(children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                child: Row(children: [
+                  Container(
+                    width: 34, height: 34,
+                    decoration: const BoxDecoration(
+                        shape: BoxShape.circle, color: Colors.white),
+                    padding: const EdgeInsets.all(3),
+                    child: Image.asset('assets/logo/logo.png',
+                        fit: BoxFit.contain),
+                  ),
+                  const SizedBox(width: 10),
+                  Column(crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text('Mes réservations',
+                        style: AppTextStyles.heading(
+                            size: 20, color: Colors.white)),
+                    Text('Suivi de vos demandes',
+                        style: AppTextStyles.label(
+                            size: 11, color: AppColors.textSub)),
+                  ]),
+                ]),
               ),
-              const SizedBox(width: 10),
-              Column(crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text('Mes réservations',
-                    style: AppTextStyles.heading(
-                        size: 20, color: Colors.white)),
-                Text('Suivi de vos demandes',
-                    style: AppTextStyles.label(
-                        size: 11, color: AppColors.textSub)),
-              ]),
-            ]),
-          ),
 
-          // Stats rapides
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-            child: Row(children: [
-              _ResaStat('1', 'En attente', AppColors.warning),
-              const SizedBox(width: 10),
-              _ResaStat('1', 'Confirmées', AppColors.blueLight),
-              const SizedBox(width: 10),
-              _ResaStat('2', 'Terminées', AppColors.greenBright),
-            ]),
-          ),
+              // Stats dynamiques
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Row(children: [
+                  _ResaStat('$enAttente', 'En attente', AppColors.warning),
+                  const SizedBox(width: 10),
+                  _ResaStat('$confirmees', 'Confirmées', AppColors.blueLight),
+                  const SizedBox(width: 10),
+                  _ResaStat('$terminees', 'Terminées', AppColors.greenBright),
+                ]),
+              ),
 
-          // Liste
-          Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              itemCount: reservations.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (_, i) => _ResaCard(resa: reservations[i]),
-            ),
-          ),
-        ]),
+              // Liste
+              if (snap.connectionState == ConnectionState.waiting && all.isEmpty)
+                const Expanded(child: Center(
+                  child: CircularProgressIndicator(
+                      color: AppColors.teal, strokeWidth: 2),
+                ))
+              else if (all.isEmpty)
+                Expanded(child: Center(child: Column(
+                    mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.calendar_today_outlined,
+                      color: AppColors.textSub, size: 48),
+                  const SizedBox(height: 12),
+                  Text('Aucune réservation pour l\'instant',
+                      style: AppTextStyles.body(
+                          size: 14, color: AppColors.textSub)),
+                ])))
+              else
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    itemCount: all.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (_, i) {
+                      final d = all[i].data() as Map<String, dynamic>;
+                      final statut = d['statut'] as String? ?? '';
+                      return _FirestoreResaCard(
+                        data: d,
+                        onAvis: statut == 'terminée'
+                            ? () => AvisForm.show(
+                                context,
+                                proId:    d['proId']    ?? '',
+                                proNom:   d['proNom']   ?? '',
+                                proEmoji: d['proEmoji'] ?? '⭐',
+                                reservationId: all[i].id,
+                              )
+                            : null,
+                      );
+                    },
+                  ),
+                ),
+            ]);
+          },
+        ),
       ),
     );
   }
@@ -1702,6 +1749,127 @@ class _ResaCard extends StatelessWidget {
       ),
     ]),
   );
+}
+
+// ── Carte réservation Firestore (client) ─────────────────────────
+class _FirestoreResaCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final VoidCallback? onAvis;
+  const _FirestoreResaCard({required this.data, this.onAvis});
+
+  static Color _color(String s) {
+    switch (s) {
+      case 'confirmée': return AppColors.blueLight;
+      case 'terminée':  return AppColors.greenBright;
+      case 'annulée':   return AppColors.error;
+      default:          return AppColors.warning;
+    }
+  }
+
+  static String _label(String s) {
+    switch (s) {
+      case 'confirmée': return 'Confirmée';
+      case 'terminée':  return 'Terminée';
+      case 'annulée':   return 'Annulée';
+      default:          return 'En attente';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final statut  = data['statut']   as String? ?? 'en_attente';
+    final color   = _color(statut);
+    final nom     = data['proNom']   as String? ?? '';
+    final emoji   = data['proEmoji'] as String? ?? '⭐';
+    final service = data['service']  as String? ?? '';
+    final ts      = data['date'];
+    final creneau = data['creneau']  as String? ?? '';
+    String dateStr = '';
+    if (ts is Timestamp) {
+      final d = ts.toDate();
+      dateStr = '${d.day}/${d.month}/${d.year}'
+          '${creneau.isNotEmpty ? " à $creneau" : ""}';
+    }
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+        Row(children: [
+          Container(
+            width: 48, height: 48,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Center(child: Text(emoji,
+                style: const TextStyle(fontSize: 24))),
+          ),
+          const SizedBox(width: 14),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(nom,
+                  style: AppTextStyles.label(
+                      size: 13, color: Colors.white,
+                      weight: FontWeight.w600),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 2),
+              Text(service, style: AppTextStyles.label(
+                  size: 11, color: AppColors.textSub)),
+              if (dateStr.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Row(children: [
+                  const Icon(Icons.calendar_today_rounded,
+                      size: 11, color: AppColors.textHint),
+                  const SizedBox(width: 4),
+                  Text(dateStr, style: AppTextStyles.label(
+                      size: 11, color: AppColors.textHint)),
+                ]),
+              ],
+            ],
+          )),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              border: Border.all(color: color.withOpacity(0.4)),
+            ),
+            child: Text(_label(statut),
+                style: AppTextStyles.label(
+                    size: 10, color: color, weight: FontWeight.w700)),
+          ),
+        ]),
+        if (onAvis != null) ...[
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: onAvis,
+            child: Container(
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.warning.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(
+                    color: AppColors.warning.withOpacity(0.3)),
+              ),
+              child: Center(
+                child: Text('⭐  Laisser un avis',
+                    style: AppTextStyles.label(
+                        size: 12, color: AppColors.warning,
+                        weight: FontWeight.w600)),
+              ),
+            ),
+          ),
+        ],
+      ]),
+    );
+  }
 }
 
 class _ResaStat extends StatelessWidget {

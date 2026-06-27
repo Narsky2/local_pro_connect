@@ -597,6 +597,8 @@ class _ProFichePageState extends State<ProFichePage>
                         .collection('reservations')
                         .add({
                       'clientId':  uid,
+                      'clientNom': FB.auth.currentUser?.displayName ??
+                          (FB.auth.currentUser?.email?.split('@').first ?? 'Client'),
                       'proId':     pro.id,
                       'proNom':    pro.nom,
                       'proEmoji':  pro.emoji,
