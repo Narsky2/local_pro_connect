@@ -800,24 +800,39 @@ class _ClientHomePageState extends State<ClientHomePage>
                         size: 13, color: AppColors.textSub)),
                 const SizedBox(height: 16),
                 // Stats client
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.06),
-                    borderRadius:
-                        BorderRadius.circular(AppRadius.md),
-                    border: Border.all(
-                        color: Colors.white.withOpacity(0.1)),
-                  ),
-                  child: Row(children: [
-                    _ProfilStat('4', 'Réservations'),
-                    _Divider(),
-                    _ProfilStat('2', 'Terminées'),
-                    _Divider(),
-                    _ProfilStat('3', 'Favoris'),
-                    _Divider(),
-                    _ProfilStat('4.8', 'Note moy.'),
-                  ]),
+                StreamBuilder<QuerySnapshot>(
+                  stream: FB.auth.currentUser == null
+                      ? const Stream.empty()
+                      : FB.db
+                          .collection('reservations')
+                          .where('clientId',
+                              isEqualTo: FB.auth.currentUser!.uid)
+                          .snapshots(),
+                  builder: (_, snap) {
+                    final docs = snap.data?.docs ?? [];
+                    final total = docs.length;
+                    final terminees = docs.where((d) =>
+                        (d.data() as Map)['statut'] == 'terminée').length;
+                    return Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.06),
+                        borderRadius:
+                            BorderRadius.circular(AppRadius.md),
+                        border: Border.all(
+                            color: Colors.white.withOpacity(0.1)),
+                      ),
+                      child: Row(children: [
+                        _ProfilStat('$total', 'Réservations'),
+                        _Divider(),
+                        _ProfilStat('$terminees', 'Terminées'),
+                        _Divider(),
+                        _ProfilStat('–', 'Favoris'),
+                        _Divider(),
+                        _ProfilStat('–', 'Note moy.'),
+                      ]),
+                    );
+                  },
                 ),
               ]),
             ),
@@ -828,11 +843,20 @@ class _ClientHomePageState extends State<ClientHomePage>
               child: Column(children: [
                 _MenuSection('Mon compte', [
                   _MenuItem(Icons.person_outline_rounded,
-                      'Modifier mon profil', AppColors.blueLight, () {}),
+                      'Modifier mon profil', AppColors.blueLight,
+                      () => ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                      )),
                   _MenuItem(Icons.notifications_outlined,
-                      'Notifications', AppColors.teal, () {}),
+                      'Notifications', AppColors.teal,
+                      () => ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                      )),
                   _MenuItem(Icons.lock_outline_rounded,
-                      'Sécurité & mot de passe', AppColors.warning, () {}),
+                      'Sécurité & mot de passe', AppColors.warning,
+                      () => ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                      )),
                 ]),
                 const SizedBox(height: 16),
                 _MenuSection('Mes activités', [
@@ -840,18 +864,33 @@ class _ClientHomePageState extends State<ClientHomePage>
                       'Historique des réservations', AppColors.blueLight,
                       () => _switchTab(2)),
                   _MenuItem(Icons.favorite_outline_rounded,
-                      'Mes favoris', AppColors.error, () {}),
+                      'Mes favoris', AppColors.error,
+                      () => ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                      )),
                   _MenuItem(Icons.payment_rounded,
-                      'Paiements & factures', AppColors.greenBright, () {}),
+                      'Paiements & factures', AppColors.greenBright,
+                      () => ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                      )),
                 ]),
                 const SizedBox(height: 16),
                 _MenuSection('Aide', [
                   _MenuItem(Icons.help_outline_rounded,
-                      'Centre d\'aide', AppColors.textSub, () {}),
+                      'Centre d\'aide', AppColors.textSub,
+                      () => ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                      )),
                   _MenuItem(Icons.star_outline_rounded,
-                      'Noter l\'application', AppColors.warning, () {}),
+                      'Noter l\'application', AppColors.warning,
+                      () => ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                      )),
                   _MenuItem(Icons.info_outline_rounded,
-                      'À propos', AppColors.textSub, () {}),
+                      'À propos', AppColors.textSub,
+                      () => ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                      )),
                 ]),
                 const SizedBox(height: 16),
                 // Déconnexion

@@ -231,9 +231,17 @@ class _DashboardTab extends StatelessWidget {
                 value: '${pro.avis}', label: 'Avis\nclients',
               )),
               const SizedBox(width: 12),
-              Expanded(child: _StatCard(
-                icon: Icons.pending_actions_rounded, color: AppColors.teal,
-                value: '3', label: 'Demandes\nen attente',
+              Expanded(child: StreamBuilder<QuerySnapshot>(
+                stream: FB.db
+                    .collection('reservations')
+                    .where('proId', isEqualTo: pro.id)
+                    .where('statut', isEqualTo: 'en_attente')
+                    .snapshots(),
+                builder: (_, snap) => _StatCard(
+                  icon: Icons.pending_actions_rounded, color: AppColors.teal,
+                  value: '${snap.data?.docs.length ?? 0}',
+                  label: 'Demandes\nen attente',
+                ),
               )),
             ]),
             const SizedBox(height: 24),
@@ -312,17 +320,23 @@ class _DashboardTab extends StatelessWidget {
             Row(children: [
               Expanded(child: _QuickAction(
                 icon: Icons.edit_rounded, label: 'Modifier\nmon profil', color: AppColors.blueLight,
-                onTap: () {},
+                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                ),
               )),
               const SizedBox(width: 12),
               Expanded(child: _QuickAction(
                 icon: Icons.add_photo_alternate_rounded, label: 'Ajouter\ndes photos', color: AppColors.greenBright,
-                onTap: () {},
+                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                ),
               )),
               const SizedBox(width: 12),
               Expanded(child: _QuickAction(
                 icon: Icons.payments_rounded, label: 'Gérer mes\ntarifs', color: AppColors.teal,
-                onTap: () {},
+                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Bientôt disponible'), behavior: SnackBarBehavior.floating),
+                ),
               )),
             ]),
           ]),

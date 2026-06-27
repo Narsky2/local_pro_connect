@@ -7,6 +7,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../models.dart';
 import '../services/firebase_service.dart';
@@ -273,7 +274,14 @@ class _ProFichePageState extends State<ProFichePage>
       // ── Boutons d'action flottants ──
       bottomNavigationBar: _ActionBar(
         pro: pro,
-        onAppeler:  () => _action('📞 Appel en cours…'),
+        onAppeler:  () async {
+          final uri = Uri(scheme: 'tel', path: pro.telephone);
+          if (await canLaunchUrl(uri)) {
+            await launchUrl(uri);
+          } else {
+            _action('📞 Impossible d\'ouvrir le composeur');
+          }
+        },
         onMessage:  () => _showMessageSheet(context),
         onReserver: () => _showBookSheet(context),
       ),
@@ -917,12 +925,17 @@ class _TabAvis extends StatelessWidget {
           .snapshots(),
       builder: (_, snap) {
         final docs = snap.data?.docs ?? [];
+        final dist = <int, int>{1: 0, 2: 0, 3: 0, 4: 0, 5: 0};
+        for (final d in docs) {
+          final n = ((d.data() as Map)['note'] as num?)?.round() ?? 0;
+          if (n >= 1 && n <= 5) dist[n] = (dist[n] ?? 0) + 1;
+        }
         return SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-            _NoteGlobale(pro: pro),
+            _NoteGlobale(pro: pro, distribution: dist, totalAvis: docs.length),
             const SizedBox(height: 20),
 
             Text('Commentaires clients',
@@ -1233,7 +1246,13 @@ class _DispoRealtime extends StatelessWidget {
 
 class _NoteGlobale extends StatelessWidget {
   final Pro pro;
-  const _NoteGlobale({required this.pro});
+  final Map<int, int> distribution;
+  final int totalAvis;
+  const _NoteGlobale({
+    required this.pro,
+    required this.distribution,
+    required this.totalAvis,
+  });
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(16),
@@ -1243,9 +1262,8 @@ class _NoteGlobale extends StatelessWidget {
       border: Border.all(color: AppColors.warning.withOpacity(0.2)),
     ),
     child: Row(children: [
-      // Note chiffrée
       Column(children: [
-        Text('${pro.note}',
+        Text(pro.note.toStringAsFixed(1),
             style: AppTextStyles.display(size: 40, color: AppColors.warning)),
         Row(children: List.generate(5, (i) {
           final filled = i < pro.note.floor();
@@ -1256,13 +1274,12 @@ class _NoteGlobale extends StatelessWidget {
             color: AppColors.warning, size: 16,
           );
         })),
-        Text('${pro.avis} avis',
+        Text('$totalAvis avis',
             style: AppTextStyles.label(size: 11, color: AppColors.textHint)),
       ]),
       const SizedBox(width: 20),
       const VerticalDivider(color: Colors.white12, width: 1),
       const SizedBox(width: 20),
-      // Barres de distribution (mockées)
       Expanded(child: Column(children: [
         for (int i = 5; i >= 1; i--)
           Padding(
@@ -1279,7 +1296,9 @@ class _NoteGlobale extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
-                    value: i == 5 ? 0.65 : i == 4 ? 0.25 : i == 3 ? 0.07 : 0.02,
+                    value: totalAvis == 0
+                        ? 0.0
+                        : (distribution[i] ?? 0) / totalAvis,
                     backgroundColor: Colors.white.withOpacity(0.08),
                     valueColor:
                         const AlwaysStoppedAnimation(AppColors.warning),
@@ -1290,59 +1309,6 @@ class _NoteGlobale extends StatelessWidget {
             ]),
           ),
       ])),
-    ]),
-  );
-}
-
-class _AvisCard extends StatelessWidget {
-  final Avis avis;
-  const _AvisCard({required this.avis});
-  @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 12),
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: Colors.white.withOpacity(0.04),
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      border: Border.all(color: Colors.white.withOpacity(0.07)),
-    ),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Container(
-          width: 34, height: 34,
-          decoration: BoxDecoration(
-            color: AppColors.blueLight.withOpacity(0.15),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Text(avis.client[0],
-                style: AppTextStyles.heading(
-                    size: 15, color: AppColors.blueLight)),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(avis.client,
-                style: AppTextStyles.label(
-                    size: 13, color: Colors.white,
-                    weight: FontWeight.w600)),
-            Text(avis.date,
-                style: AppTextStyles.label(size: 10,
-                    color: AppColors.textHint)),
-          ],
-        )),
-        // Étoiles
-        Row(children: List.generate(5, (i) => Icon(
-          i < avis.note.floor()
-              ? Icons.star_rounded : Icons.star_outline_rounded,
-          color: AppColors.warning, size: 13,
-        ))),
-      ]),
-      const SizedBox(height: 10),
-      Text(avis.commentaire,
-          style: AppTextStyles.body(size: 12, color: AppColors.textSub)),
     ]),
   );
 }
