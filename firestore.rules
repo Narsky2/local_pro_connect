@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────
+    function isAuth() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isAuth() && request.auth.uid == uid;
+    }
+
+    // ── users/{uid} ───────────────────────────────────────────────
+    // Lecture/écriture uniquement par le propriétaire du compte
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // ── pros/{uid} ────────────────────────────────────────────────
+    // Lecture publique si statut == 'validé'
+    // Écriture uniquement par le propriétaire
+    match /pros/{uid} {
+      allow read: if resource.data.statut == 'validé'
+                  || isOwner(uid);
+      allow write: if isOwner(uid);
+    }
+
+    // ── reservations/{id} ─────────────────────────────────────────
+    // Lecture/écriture par le client (clientId) ou le pro (proId)
+    match /reservations/{id} {
+      allow read: if isAuth()
+                  && (request.auth.uid == resource.data.clientId
+                   || request.auth.uid == resource.data.proId);
+      allow create: if isAuth()
+                    && request.auth.uid == request.resource.data.clientId;
+      allow update: if isAuth()
+                    && (request.auth.uid == resource.data.clientId
+                     || request.auth.uid == resource.data.proId);
+      allow delete: if false;
+    }
+
+    // ── avis/{id} ─────────────────────────────────────────────────
+    // Lecture publique, écriture par client authentifié
+    match /avis/{id} {
+      allow read: if true;
+      allow create: if isAuth()
+                    && request.auth.uid == request.resource.data.clientId;
+      allow update, delete: if false;
+    }
+
+    // ── transactions/{id} ─────────────────────────────────────────
+    // Lecture par clientId ou proId, écriture par client
+    match /transactions/{id} {
+      allow read: if isAuth()
+                  && (request.auth.uid == resource.data.clientId
+                   || request.auth.uid == resource.data.proId);
+      allow create: if isAuth()
+                    && request.auth.uid == request.resource.data.clientId;
+      allow update, delete: if false;
+    }
+
+  }
+}
