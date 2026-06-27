@@ -8,7 +8,9 @@ import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
+import '../services/firebase_service.dart';
 
 const _categories = [
   'Santé & Médical', 'Banque & Finance', 'Éducation & Formation',
@@ -60,6 +62,8 @@ class _ProRegisterPageState extends State<ProRegisterPage>
   File? _logo;
   int     _nbImages   = 0;
 
+  bool _submitting = false;
+
   // ── Animation slide ──
   late AnimationController _animCtrl;
   late Animation<Offset>   _slideAnim;
@@ -94,6 +98,7 @@ class _ProRegisterPageState extends State<ProRegisterPage>
   }
 
   void _next() {
+    if (_submitting) return;
     switch (_step) {
       case 0:
         if (!_fKey1.currentState!.validate()) return;
@@ -111,9 +116,66 @@ class _ProRegisterPageState extends State<ProRegisterPage>
         if (_logo == null) return _snack('Ajoutez le logo ou photo principale');
         _animTo(3);
       case 3:
-        // TODO: Firebase submit
-        context.go('/pro-home');
+        _submit();
     }
+  }
+
+  Future<void> _submit() async {
+    setState(() => _submitting = true);
+    try {
+      final uid = FB.auth.currentUser!.uid;
+      await FB.db.collection('pros').doc(uid).set({
+        'nom':          _nomCtrl.text.trim(),
+        'structure':    _svcNameCtrl.text.trim(),
+        'categorie':    _cat!,
+        'emoji':        _catEmoji(_cat!),
+        'description':  _descCtrl.text.trim(),
+        'ville':        'Yaoundé',
+        'quartier':     _addrCtrl.text.trim(),
+        'telephone':    '+237${_telCtrl.text.trim()}',
+        'email':        _emailCtrl.text.trim(),
+        'lat':          3.848,
+        'lng':          11.502,
+        'prixMoyen':    0.0,
+        'disponibilite':_dispo!,
+        'isAvailable':  true,
+        'statut':       'en_attente',
+        'note':         0.0,
+        'avisCount':    0,
+        'prestations':  0,
+        'galerie':      <String>[],
+        'tags':         <String>[],
+        'tarifs':       {'Service principal': _tarifCtrl.text.trim()},
+        'horaires':     {'Disponibilité': _dispo!},
+        'photoUrl':     '',
+        'cniUrl':       '',
+        'createdAt':    FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
+      context.go('/pro-home');
+    } catch (_) {
+      if (!mounted) return;
+      _snack('Erreur lors de la soumission. Réessayez.');
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  String _catEmoji(String cat) {
+    const map = {
+      'Santé & Médical':        '🏥',
+      'Banque & Finance':       '💰',
+      'Éducation & Formation':  '📚',
+      'Restauration & Traiteur':'🍽️',
+      'Transport & Livraison':  '🚚',
+      'Réparation & Maintenance':'🔧',
+      'Beauté & Bien-être':     '💅',
+      'Juridique & Conseil':    '⚖️',
+      'Informatique & Tech':    '💻',
+      'Bâtiment & Travaux':     '🏗️',
+      'Événementiel':           '🎉',
+    };
+    return map[cat] ?? '⭐';
   }
 
   void _prev() => _step > 0 ? _animTo(_step - 1) : context.go('/welcome');
@@ -311,6 +373,7 @@ class _ProRegisterPageState extends State<ProRegisterPage>
           child: GradientButton(
             label: isLast ? 'Soumettre mon profil' : 'Continuer →',
             onTap: _next,
+            loading: isLast && _submitting,
             colors: isLast
                 ? [AppColors.teal, AppColors.greenBright]
                 : [AppColors.bluePrimary, AppColors.teal],

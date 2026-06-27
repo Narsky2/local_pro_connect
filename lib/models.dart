@@ -60,6 +60,31 @@ class Pro {
       return '${(prixMoyen/1000).toStringAsFixed(0)}k FCFA';
     return '${prixMoyen.toStringAsFixed(0)} FCFA';
   }
+
+  factory Pro.fromMap(String id, Map<String, dynamic> d) => Pro(
+    id:           id,
+    nom:          d['nom']          ?? '',
+    structure:    d['structure']    ?? '',
+    categorie:    d['categorie']    ?? '',
+    emoji:        d['emoji']        ?? '⭐',
+    disponibilite:d['disponibilite']?? '',
+    description:  d['description'] ?? '',
+    ville:        d['ville']        ?? 'Yaoundé',
+    quartier:     d['quartier']     ?? '',
+    telephone:    d['telephone']    ?? '',
+    email:        d['email']        ?? '',
+    lat:          (d['lat']      as num?)?.toDouble() ?? 3.848,
+    lng:          (d['lng']      as num?)?.toDouble() ?? 11.502,
+    note:         (d['note']     as num?)?.toDouble() ?? 0.0,
+    prixMoyen:    (d['prixMoyen']as num?)?.toDouble() ?? 0.0,
+    avis:         (d['avisCount']as num?)?.toInt()    ?? 0,
+    prestations:  (d['prestations'] as num?)?.toInt() ?? 0,
+    galerie:      List<String>.from(d['galerie']  ?? []),
+    tags:         List<String>.from(d['tags']     ?? []),
+    tarifs:       Map<String,String>.from(d['tarifs']  ?? {}),
+    horaires:     Map<String,String>.from(d['horaires']?? {}),
+    reviews:      [],
+  );
 }
 
 // ── Mock data ─────────────────────────────────────────────────────

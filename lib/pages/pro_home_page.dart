@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/app_theme.dart';
 import '../models.dart';
+import '../services/firebase_service.dart';
 
 class ProHomePage extends StatefulWidget {
   const ProHomePage({super.key});
@@ -14,22 +15,69 @@ class ProHomePage extends StatefulWidget {
 }
 
 class _ProHomePageState extends State<ProHomePage> {
-  int _navIndex = 0;
+  int    _navIndex = 0;
+  Pro?   _pro;
+  String _statut      = 'en_attente';
+  bool   _isAvailable = true;
+  bool   _loading     = true;
 
-  // Mock du profil pro connecté — reprend les données du 1er mock
-  final Pro _monProfil = mockPros.first;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final uid = FB.auth.currentUser?.uid;
+    if (uid == null) { setState(() => _loading = false); return; }
+    final doc = await FB.db.collection('pros').doc(uid).get();
+    if (!mounted) return;
+    if (doc.exists) {
+      final d = doc.data()!;
+      setState(() {
+        _pro         = Pro.fromMap(uid, d);
+        _statut      = d['statut']      ?? 'en_attente';
+        _isAvailable = d['isAvailable'] ?? true;
+        _loading     = false;
+      });
+    } else {
+      setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: AppColors.bgDark,
+        body: Center(child: CircularProgressIndicator(color: AppColors.teal)),
+      );
+    }
+    if (_pro == null) {
+      return Scaffold(
+        backgroundColor: AppColors.bgDark,
+        body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.person_off_rounded, color: AppColors.textSub, size: 48),
+          const SizedBox(height: 16),
+          Text('Profil introuvable', style: AppTextStyles.heading(size: 18)),
+          const SizedBox(height: 8),
+          GradientButton(label: 'Compléter mon profil', onTap: () => context.go('/pro-register')),
+        ])),
+      );
+    }
     return Scaffold(
       backgroundColor: AppColors.bgDark,
       body: IndexedStack(
         index: _navIndex,
         children: [
-          _DashboardTab(pro: _monProfil),
+          _DashboardTab(pro: _pro!, statut: _statut, isAvailable: _isAvailable,
+              onToggle: (v) async {
+                setState(() => _isAvailable = v);
+                await FB.db.collection('pros').doc(_pro!.id).update({'isAvailable': v});
+              }),
           _ReservationsTab(),
-          _AvisTab(pro: _monProfil),
-          _ProfilTab(pro: _monProfil),
+          _AvisTab(pro: _pro!),
+          _ProfilTab(pro: _pro!, statut: _statut),
         ],
       ),
       bottomNavigationBar: _BottomNav(
@@ -110,7 +158,10 @@ class _BottomNav extends StatelessWidget {
 // ════════════════════════════════════════════════════════════════
 class _DashboardTab extends StatelessWidget {
   final Pro pro;
-  const _DashboardTab({required this.pro});
+  final String statut;
+  final bool isAvailable;
+  final void Function(bool) onToggle;
+  const _DashboardTab({required this.pro, required this.statut, required this.isAvailable, required this.onToggle});
 
   @override
   Widget build(BuildContext context) {
@@ -157,7 +208,7 @@ class _DashboardTab extends StatelessWidget {
             const SizedBox(height: 20),
 
             // ── Statut compte ──
-            _StatutCard(),
+            _StatutCard(statut: statut),
             const SizedBox(height: 20),
 
             // ── Stats principales ──
@@ -187,7 +238,7 @@ class _DashboardTab extends StatelessWidget {
             const SizedBox(height: 24),
 
             // ── Toggle disponibilité ──
-            _DispoToggle(),
+            _DispoToggle(initValue: isAvailable, onToggle: onToggle),
             const SizedBox(height: 24),
 
             // ── Réservations récentes ──
@@ -419,8 +470,9 @@ class _AvisTab extends StatelessWidget {
 // ONGLET 4 — PROFIL
 // ════════════════════════════════════════════════════════════════
 class _ProfilTab extends StatelessWidget {
-  final Pro pro;
-  const _ProfilTab({required this.pro});
+  final Pro    pro;
+  final String statut;
+  const _ProfilTab({required this.pro, required this.statut});
 
   @override
   Widget build(BuildContext context) {
@@ -447,11 +499,14 @@ class _ProfilTab extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
               decoration: BoxDecoration(
-                color: AppColors.teal.withOpacity(0.12),
+                color: (statut == 'validé' ? AppColors.teal : statut == 'refusé' ? AppColors.error : AppColors.warning).withOpacity(0.12),
                 borderRadius: BorderRadius.circular(AppRadius.pill),
-                border: Border.all(color: AppColors.teal.withOpacity(0.4)),
+                border: Border.all(color: (statut == 'validé' ? AppColors.teal : statut == 'refusé' ? AppColors.error : AppColors.warning).withOpacity(0.4)),
               ),
-              child: Text('✓ Compte vérifié', style: AppTextStyles.label(size: 11, color: AppColors.teal, weight: FontWeight.w700)),
+              child: Text(
+                statut == 'validé' ? '✓ Compte vérifié' : statut == 'refusé' ? '✗ Compte refusé' : '⏳ En attente',
+                style: AppTextStyles.label(size: 11, color: statut == 'validé' ? AppColors.teal : statut == 'refusé' ? AppColors.error : AppColors.warning, weight: FontWeight.w700),
+              ),
             ),
             const SizedBox(height: 28),
 
@@ -464,7 +519,10 @@ class _ProfilTab extends StatelessWidget {
 
             const SizedBox(height: 16),
             GestureDetector(
-              onTap: () => context.go('/welcome'),
+              onTap: () async {
+                await FB.auth.signOut();
+                if (context.mounted) context.go('/welcome');
+              },
               child: Container(
                 height: 50,
                 decoration: BoxDecoration(
@@ -491,30 +549,42 @@ class _ProfilTab extends StatelessWidget {
 // ════════════════════════════════════════════════════════════════
 
 class _StatutCard extends StatelessWidget {
+  final String statut;
+  const _StatutCard({required this.statut});
+
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(colors: [
-        AppColors.greenBright.withOpacity(0.12),
-        AppColors.teal.withOpacity(0.06),
-      ]),
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      border: Border.all(color: AppColors.greenBright.withOpacity(0.3)),
-    ),
-    child: Row(children: [
-      Container(
-        width: 40, height: 40,
-        decoration: BoxDecoration(color: AppColors.greenBright.withOpacity(0.15), shape: BoxShape.circle),
-        child: const Icon(Icons.verified_rounded, color: AppColors.greenBright, size: 22),
+  Widget build(BuildContext context) {
+    final isValidé   = statut == 'validé';
+    final isRefusé   = statut == 'refusé';
+    final color      = isValidé ? AppColors.greenBright : isRefusé ? AppColors.error : AppColors.warning;
+    final icon       = isValidé ? Icons.verified_rounded : isRefusé ? Icons.block_rounded : Icons.hourglass_top_rounded;
+    final titre      = isValidé ? 'Profil validé' : isRefusé ? 'Profil refusé' : 'En attente de validation';
+    final sousTitre  = isValidé
+        ? 'Vous êtes visible par tous les clients'
+        : isRefusé
+            ? 'Contactez le support pour plus d\'informations'
+            : 'Votre dossier est en cours d\'examen';
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [color.withOpacity(0.12), color.withOpacity(0.04)]),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: color.withOpacity(0.3)),
       ),
-      const SizedBox(width: 12),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Profil validé', style: AppTextStyles.label(size: 13, color: AppColors.greenBright, weight: FontWeight.w700)),
-        Text('Vous êtes visible par tous les clients', style: AppTextStyles.label(size: 11, color: AppColors.textHint)),
-      ])),
-    ]),
-  );
+      child: Row(children: [
+        Container(
+          width: 40, height: 40,
+          decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
+          child: Icon(icon, color: color, size: 22),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(titre,    style: AppTextStyles.label(size: 13, color: color, weight: FontWeight.w700)),
+          Text(sousTitre,style: AppTextStyles.label(size: 11, color: AppColors.textHint)),
+        ])),
+      ]),
+    );
+  }
 }
 
 class _StatCard extends StatelessWidget {
@@ -541,11 +611,16 @@ class _StatCard extends StatelessWidget {
 }
 
 class _DispoToggle extends StatefulWidget {
+  final bool initValue;
+  final void Function(bool) onToggle;
+  const _DispoToggle({required this.initValue, required this.onToggle});
   @override
   State<_DispoToggle> createState() => _DispoToggleState();
 }
 class _DispoToggleState extends State<_DispoToggle> {
-  bool _dispo = true;
+  late bool _dispo;
+  @override
+  void initState() { super.initState(); _dispo = widget.initValue; }
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(16),
@@ -572,7 +647,10 @@ class _DispoToggleState extends State<_DispoToggle> {
       Switch(
         value: _dispo,
         activeColor: AppColors.greenBright,
-        onChanged: (v) => setState(() => _dispo = v),
+        onChanged: (v) {
+          setState(() => _dispo = v);
+          widget.onToggle(v);
+        },
       ),
     ]),
   );
