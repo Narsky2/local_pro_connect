@@ -6,8 +6,10 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
 import '../models.dart';
+import '../services/firebase_service.dart';
 
 class ProFichePage extends StatefulWidget {
   final Pro pro;
@@ -347,7 +349,10 @@ class _ProFichePageState extends State<ProFichePage>
   void _showBookSheet(BuildContext ctx) {
     DateTime? date;
     String? creneau;
+    String? serviceChoisi;
+    bool submitting = false;
     final descCtrl = TextEditingController();
+    final pro = widget.pro;
 
     showModalBottomSheet(
       context: ctx,
@@ -368,7 +373,7 @@ class _ProFichePageState extends State<ProFichePage>
               const SizedBox(height: 16),
 
               Row(children: [
-                Text(widget.pro.emoji,
+                Text(pro.emoji,
                     style: const TextStyle(fontSize: 26)),
                 const SizedBox(width: 12),
                 Column(crossAxisAlignment: CrossAxisAlignment.start,
@@ -376,14 +381,71 @@ class _ProFichePageState extends State<ProFichePage>
                   Text('Réserver',
                       style: AppTextStyles.heading(
                           size: 18, color: Colors.white)),
-                  Text(widget.pro.nom,
+                  Text(pro.nom,
                       style: AppTextStyles.body(
                           size: 12, color: AppColors.teal)),
                 ]),
               ]),
               const SizedBox(height: 20),
 
-              // Sélecteur de date
+              // ── Choix du service ──
+              if (pro.tarifs.isNotEmpty) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Service',
+                      style: AppTextStyles.label(
+                          size: 12, color: AppColors.textSub,
+                          weight: FontWeight.w600)),
+                ),
+                const SizedBox(height: 10),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final e in pro.tarifs.entries)
+                    GestureDetector(
+                      onTap: () => setSt(() => serviceChoisi = e.key),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: serviceChoisi == e.key
+                              ? AppColors.teal.withOpacity(0.15)
+                              : Colors.white.withOpacity(0.05),
+                          borderRadius:
+                              BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(
+                            color: serviceChoisi == e.key
+                                ? AppColors.teal.withOpacity(0.7)
+                                : Colors.white.withOpacity(0.1),
+                            width: serviceChoisi == e.key ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(e.key,
+                                style: AppTextStyles.label(
+                                  size: 13,
+                                  color: serviceChoisi == e.key
+                                      ? AppColors.teal
+                                      : Colors.white,
+                                  weight: FontWeight.w600,
+                                )),
+                            Text(e.value,
+                                style: AppTextStyles.label(
+                                  size: 11,
+                                  color: serviceChoisi == e.key
+                                      ? AppColors.teal.withOpacity(0.8)
+                                      : AppColors.textSub,
+                                )),
+                          ],
+                        ),
+                      ),
+                    ),
+                ]),
+                const SizedBox(height: 16),
+              ],
+
+              // ── Sélecteur de date ──
               GestureDetector(
                 onTap: () async {
                   final d = await showDatePicker(
@@ -407,7 +469,7 @@ class _ProFichePageState extends State<ProFichePage>
               ),
               const SizedBox(height: 14),
 
-              // Créneaux horaires
+              // ── Créneaux horaires ──
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text('Créneau horaire',
@@ -467,7 +529,7 @@ class _ProFichePageState extends State<ProFichePage>
               ),
               const SizedBox(height: 16),
 
-              // Récap prix
+              // ── Récap prix ──
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -480,29 +542,81 @@ class _ProFichePageState extends State<ProFichePage>
                   const Icon(Icons.payments_outlined,
                       color: AppColors.greenBright, size: 18),
                   const SizedBox(width: 10),
-                  Text('Prix moyen estimé : ',
-                      style: AppTextStyles.label(size: 13)),
-                  Text(widget.pro.prixFormat,
-                      style: AppTextStyles.label(
-                          size: 14, color: AppColors.greenBright,
-                          weight: FontWeight.w700)),
+                  Text(
+                    serviceChoisi != null
+                        ? 'Tarif : '
+                        : 'Prix moyen estimé : ',
+                    style: AppTextStyles.label(size: 13),
+                  ),
+                  Text(
+                    serviceChoisi != null
+                        ? (pro.tarifs[serviceChoisi] ?? pro.prixFormat)
+                        : pro.prixFormat,
+                    style: AppTextStyles.label(
+                        size: 14, color: AppColors.greenBright,
+                        weight: FontWeight.w700),
+                  ),
                 ]),
               ),
               const SizedBox(height: 16),
 
               GradientButton(
-                label: 'Confirmer la réservation',
+                label: submitting
+                    ? 'Envoi en cours…'
+                    : 'Confirmer la réservation',
                 icon: Icons.check_rounded,
-                onTap: () {
+                loading: submitting,
+                onTap: () async {
                   if (date == null || creneau == null) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-                      content: Text('Sélectionnez une date et un créneau'),
+                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                      content: Text(
+                          'Sélectionnez une date et un créneau',
+                          style: AppTextStyles.body(
+                              size: 13, color: Colors.white)),
+                      backgroundColor: AppColors.bgCard,
+                      behavior: SnackBarBehavior.floating,
                     ));
                     return;
                   }
-                  Navigator.pop(ctx);
-                  _action('✅ Réservation confirmée pour le '
-                      '${date!.day}/${date!.month} à $creneau !');
+                  if (submitting) return;
+                  setSt(() => submitting = true);
+                  try {
+                    final uid = FB.auth.currentUser?.uid ?? '';
+                    final montant = _parseMontant(
+                        pro.tarifs[serviceChoisi] ?? '',
+                        fallback: pro.prixMoyen);
+                    final h = int.tryParse(
+                            creneau!.replaceAll('h', '').substring(0, 2)) ??
+                        8;
+                    final dateTime = DateTime(
+                        date!.year, date!.month, date!.day, h);
+                    await FB.db.collection('reservations').add({
+                      'clientId':  uid,
+                      'proId':     pro.id,
+                      'proNom':    pro.nom,
+                      'proEmoji':  pro.emoji,
+                      'service':   serviceChoisi ?? 'Service général',
+                      'montant':   montant,
+                      'date':      Timestamp.fromDate(dateTime),
+                      'creneau':   creneau,
+                      'message':   descCtrl.text.trim(),
+                      'statut':    'en_attente',
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
+                    if (!ctx2.mounted) return;
+                    Navigator.pop(ctx2);
+                    _action(
+                        '✅ Réservation envoyée à ${pro.nom} — '
+                        '${date!.day}/${date!.month} à $creneau');
+                  } catch (e) {
+                    setSt(() => submitting = false);
+                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                      content: Text('Erreur : $e',
+                          style: AppTextStyles.body(
+                              size: 13, color: Colors.white)),
+                      backgroundColor: AppColors.error,
+                    ));
+                  }
                 },
               ),
               const SizedBox(height: 8),
@@ -511,6 +625,12 @@ class _ProFichePageState extends State<ProFichePage>
         ),
       ),
     );
+  }
+
+  double _parseMontant(String tarif, {required double fallback}) {
+    final digits = tarif.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return fallback;
+    return double.tryParse(digits) ?? fallback;
   }
 }
 
